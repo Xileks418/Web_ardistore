@@ -1,0 +1,239 @@
+<html lang="id">
+<head>
+  <meta charset="UTF-8">
+  <title>Admin Pricelist - BotToko</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/5.15.3/css/all.min.css"></link>
+  <!-- Firebase SDK -->
+  <script src="https://www.gstatic.com/firebasejs/9.22.2/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/9.22.2/firebase-auth-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/9.22.2/firebase-firestore-compat.js"></script>
+  <script>
+    const firebaseConfig = {
+      apiKey: "AIzaSyDsx4AFFZ9mXkuynUXZ6PJ7xrbh_kl_hec",
+      authDomain: "bottoko-ffd16.firebaseapp.com",
+      projectId: "bottoko-ffd16",
+      storageBucket: "bottoko-ffd16.appspot.com",
+      messagingSenderId: "174732913616",
+      appId: "1:174732913616:web:09435d2e508303f91627d5"
+    };
+    firebase.initializeApp(firebaseConfig);
+  </script>
+</head>
+<body class="bg-gray-100 flex justify-center items-center min-h-screen">
+
+  <div class="bg-white p-6 rounded-lg shadow-lg w-full max-w-md">
+    <h1 class="text-2xl font-bold mb-4 text-center">Admin Pricelist - BotToko</h1>
+
+    <!-- Form Login -->
+    <div id="login-form" class="space-y-4">
+      <input id="email" type="email" placeholder="Email Admin" class="w-full p-2 border rounded">
+      <input id="password" type="password" placeholder="Password" class="w-full p-2 border rounded">
+      <button onclick="login()" class="w-full bg-blue-500 text-white p-2 rounded">Login</button>
+      <p id="login-error" class="text-red-500 text-sm text-center"></p>
+    </div>
+
+    <!-- Admin Panel -->
+    <div id="admin-panel" class="hidden">
+      <button onclick="logout()" class="w-full bg-red-500 text-white p-2 rounded mb-4">
+        Logout Admin
+      </button>
+
+      <div class="mb-4">
+        <label class="block text-gray-700 font-semibold mb-1">Markup (Keuntunganmu):</label>
+        <input id="markup" type="number" class="w-full p-2 border rounded" value="2000" oninput="updatePrices()">
+      </div>
+
+      <div id="packages-container" class="space-y-2 mb-4"></div>
+
+      <button onclick="addPackage()" class="w-full bg-green-500 text-white p-2 rounded mb-6">
+        + Tambah Paket
+      </button>
+
+      <div>
+        <label class="block text-gray-700 font-semibold mb-2">Hasil Pricelist:</label>
+        <div class="p-4 border border-gray-300 rounded bg-gray-50">
+          <ul id="price-list" class="list-disc list-inside text-gray-800 space-y-1"></ul>
+        </div>
+      </div>
+
+      <!-- Tombol Salin & Simpan + Preview WhatsApp -->
+      <div class="mt-4 flex flex-col gap-2">
+        <div class="flex gap-2">
+          <button onclick="copyToClipboard()" class="flex-1 bg-blue-600 text-white py-2 rounded">
+            📋 Salin Pricelist
+          </button>
+          <button onclick="saveToFirestore()" class="flex-1 bg-green-600 text-white py-2 rounded">
+            💾 Simpan Pricelist
+          </button>
+        </div>
+
+        <label class="mt-2 font-semibold text-gray-700">Preview WhatsApp:</label>
+        <textarea id="whatsapp-preview" class="w-full p-2 border rounded bg-gray-100 text-sm" rows="6" readonly></textarea>
+      </div>
+
+      <!-- Riwayat Pricelist -->
+      <div class="mt-4">
+        <h2 class="font-semibold text-lg text-gray-800 mb-2">Riwayat Pricelist:</h2>
+        <div id="history-container" class="space-y-2"></div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    let packages = [
+      { label: "Masif 2-3 hari", basePrice: 6000 },
+      { label: "Masif 4-5 hari", basePrice: 8000 },
+      { label: "Masif 6-7 hari", basePrice: 10000 },
+      { label: "Masif 8-9 hari", basePrice: 12000 },
+    ];
+
+    function login() {
+      const email = document.getElementById("email").value;
+      const password = document.getElementById("password").value;
+
+      firebase.auth().signInWithEmailAndPassword(email, password)
+        .then(() => {
+          document.getElementById("login-form").classList.add("hidden");
+          document.getElementById("admin-panel").classList.remove("hidden");
+          updatePrices();
+        })
+        .catch(error => {
+          document.getElementById("login-error").innerText = error.message;
+        });
+    }
+
+    function logout() {
+      firebase.auth().signOut().then(() => location.reload());
+    }
+
+    firebase.auth().onAuthStateChanged(user => {
+      if (user) {
+        document.getElementById("login-form").classList.add("hidden");
+        document.getElementById("admin-panel").classList.remove("hidden");
+        updatePrices();
+        loadHistory();
+      }
+    });
+
+    function renderEditableFields() {
+      const container = document.getElementById("packages-container");
+      container.innerHTML = '';
+      packages.forEach((pkg, index) => {
+        container.innerHTML += `
+          <div class="flex gap-2">
+            <input type="text" class="w-1/2 p-2 border rounded" value="${pkg.label}" onchange="updatePackageLabel(${index}, this.value)">
+            <input type="number" class="w-1/3 p-2 border rounded" value="${pkg.basePrice}" onchange="updatePackagePrice(${index}, this.value)">
+            <button onclick="removePackage(${index})" class="bg-red-500 text-white px-2 rounded">X</button>
+          </div>
+        `;
+      });
+    }
+
+    function updatePackageLabel(index, value) {
+      packages[index].label = value;
+      updatePrices();
+    }
+
+    function updatePackagePrice(index, value) {
+      const val = parseInt(value);
+      packages[index].basePrice = isNaN(val) || val < 0 ? 0 : val;
+      updatePrices();
+    }
+
+    function addPackage() {
+      packages.push({ label: "Paket Baru", basePrice: 0 });
+      renderEditableFields();
+    }
+
+    function removePackage(index) {
+      packages.splice(index, 1);
+      renderEditableFields();
+    }
+
+    function updatePrices() {
+      renderEditableFields();
+      const markup = parseInt(document.getElementById("markup").value) || 0;
+      const priceList = document.getElementById("price-list");
+      priceList.innerHTML = '';
+
+      let previewText = `==𝗔𝗥𝗗𝗜𝗦𝗧𝗢𝗥𝗘===\n𝗥𝗘𝗔𝗗𝗬 𝗕𝗘𝗞𝗔𝗦𝗔𝗡\n\n`;
+
+      priceList.innerHTML += `
+        <li class="list-none text-center font-bold text-gray-800">
+          ==𝗔𝗥𝗗𝗜𝗦𝗧𝗢𝗥𝗘===<br>𝗥𝗘𝗔𝗗𝗬 𝗕𝗘𝗞𝗔𝗦𝗔𝗡
+        </li>
+      `;
+
+      packages.forEach(pkg => {
+        const total = pkg.basePrice + markup;
+        const line = `${pkg.label} → Rp${total.toLocaleString('id-ID')}`;
+        priceList.innerHTML += `<li>${line}</li>`;
+        previewText += `${line}\n`;
+      });
+
+      document.getElementById("whatsapp-preview").value = previewText;
+    }
+
+    function copyToClipboard() {
+      const text = document.getElementById("whatsapp-preview").value;
+      navigator.clipboard.writeText(text)
+        .then(() => alert("Pricelist berhasil disalin ke clipboard!"))
+        .catch(() => alert("Gagal menyalin pricelist."));
+    }
+
+    function saveToFirestore() {
+      const user = firebase.auth().currentUser;
+      if (!user) {
+        alert("Harap login sebagai admin.");
+        return;
+      }
+
+      const db = firebase.firestore();
+      const previewText = document.getElementById("whatsapp-preview").value;
+      const newPricelistId = db.collection("pricelists").doc().id;
+
+      console.log("Simpan Pricelist:", {
+        userId: user.uid,
+        previewText: previewText,
+      });
+
+      db.collection("pricelists").doc(newPricelistId).set({
+        updatedAt: new Date(),
+        text: previewText,
+        userId: user.uid,
+      })
+      .then(() => {
+        console.log("Pricelist berhasil disimpan.");
+        alert("Pricelist berhasil disimpan.");
+        loadHistory();
+      })
+      .catch(error => {
+        console.error("Gagal menyimpan pricelist:", error);
+        alert("Gagal menyimpan pricelist: " + error.message);
+      });
+    }
+
+    function loadHistory() {
+      const db = firebase.firestore();
+      const historyContainer = document.getElementById("history-container");
+      historyContainer.innerHTML = '';
+      
+      db.collection("pricelists").orderBy("updatedAt", "desc").limit(5).get()
+        .then(snapshot => {
+          snapshot.forEach(doc => {
+            const data = doc.data();
+            const previewText = data.text.substring(0, 80) + '...';
+            const viewLink = `<a href="https://wa.me/?text=${encodeURIComponent(data.text)}" target="_blank" class="text-blue-500">Lihat di WhatsApp</a>`;
+            historyContainer.innerHTML += `
+              <div class="p-2 border rounded mb-2 bg-gray-50">
+                <p class="text-sm">${previewText} ${viewLink}</p>
+              </div>
+            `;
+          });
+        });
+    }
+  </script>
+
+</body>
+</html>
